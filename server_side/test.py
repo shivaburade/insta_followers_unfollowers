@@ -8,7 +8,7 @@ df = pd.read_csv('user_management.csv')
 print(df.loc[df['ID']==333521760]['filename'].values[0])
 '''
 user_name = 'cute_pawster'
-password = 'pawster_is_cute'
+password = '**'
 Session_folder = 'Session/'
 users_management = 'user_management.csv'
 

@@ -7,7 +7,6 @@ import time
 import codecs
 import json
 import pickle
-from requests.exceptions import HTTPError
 
 #Defining constants.
 app = Flask(__name__)
@@ -17,10 +16,12 @@ users_management = 'user_management.csv'
 #UDF
 class User(dict):
 
-    def __init__(self, ID, username, profile_pic_url):
+    def __init__(self, ID, username, profile_pic_url, following=False, follower=False):
         self.ID = ID
         self.username = username
         self.profile_pic_url = profile_pic_url
+        self.following = following
+        self.follower = follower
         dict.__init__(self, self.__dict__)
     
     def __eq__(self, other):
@@ -56,7 +57,7 @@ def get_all_following(api):
     next_max_id = True
     while next_max_id:
         for following in resp_following["users"]:
-            user_following.append(User(following["pk"], following["username"], following["profile_pic_url"]))
+            user_following.append(User(following["pk"], following["username"], following["profile_pic_url"], following=True))
 
         if resp_following['next_max_id']:
             resp_following = api.user_following(api.authenticated_user_id, Client.generate_uuid(), max_id=resp_following['next_max_id'])
@@ -70,7 +71,7 @@ def get_all_follower(api):
     next_max_id = True
     while next_max_id:    
         for follower in resp_followers["users"]:
-            user_followers.append(User(follower["pk"], follower["username"], follower["profile_pic_url"]))
+            user_followers.append(User(follower["pk"], follower["username"], follower["profile_pic_url"], follower=True))
     
         if resp_followers['next_max_id']:
             resp_followers = api.user_followers(api.authenticated_user_id, Client.generate_uuid(), max_id=resp_followers['next_max_id'])
@@ -84,6 +85,7 @@ def login():
     try:
         uname = request.form['username'].strip()
         pwd = request.form['password'].strip()
+        print(uname, pwd)
         account = Client(uname, pwd)
         user_id = account.authenticated_user_id
         filename = Session_folder + uname
@@ -102,7 +104,8 @@ def login():
         response["Status"] = "Sucessful"
         response["ID"] = user_id
         return response
-    except:
+    except Exception as e:
+        print(e)
         response = {}
         response["Code"] = 400
         response["Status"] = "Unsucessful"
@@ -112,9 +115,10 @@ def login():
 @app.route("/unfollowers", methods=["POST"])
 def unfollowers():
     ID = int(request.form['ID'].strip())
+    max_keys = int(request.form['max_keys'].strip())
     users_df = pd.read_csv(users_management)
     filepath = users_df.loc[users_df["ID"] == ID]['filename'].values[0]
-    print(filepath, ID)
+    #print(filepath, ID)
     with open(filepath, 'r') as readfile:
         account = json.load(readfile, object_hook=from_json)
     api = Client('abc', 'abc', settings=account)
@@ -124,18 +128,103 @@ def unfollowers():
     unfollowers = []
     for f in following:
         if f not in followers:
+            f.follower = False
             unfollowers.append(f)
-    print(followers[0])
+    print(unfollowers[0])
     #print(followers)
     print('Followers: ', len(followers))
     print('Following: ', len(following))
     print('Not Following you: ', len(unfollowers))
 
-    print(json.dumps(unfollowers[0]))
-    return json.dumps(unfollowers)
+    return json.dumps({"total_keys": len(unfollowers), "data": unfollowers[max_keys:max_keys + 50]})
+
+@app.route("/follow", methods=["POST"])
+def follow():
+    ID = int(request.form['ID'].strip())
+    UID = int(request.form['UID'].strip())
+    users_df = pd.read_csv(users_management)
+    filepath = users_df.loc[users_df["ID"] == ID]['filename'].values[0]
+    #print(filepath, ID)
+    with open(filepath, 'r') as readfile:
+        account = json.load(readfile, object_hook=from_json)
+    api = Client('abc', 'abc', settings=account)
+    
+    res = api.friendships_create(UID)
+    print(res)
+
+    return json.dumps({"data": "Followed"})
+
+@app.route("/unfollow", methods=["POST"])
+def unfollow():
+    ID = int(request.form['ID'].strip())
+    UID = int(request.form['UID'].strip())
+    users_df = pd.read_csv(users_management)
+    filepath = users_df.loc[users_df["ID"] == ID]['filename'].values[0]
+    #print(filepath, ID)
+    with open(filepath, 'r') as readfile:
+        account = json.load(readfile, object_hook=from_json)
+    api = Client('abc', 'abc', settings=account)
+    
+    res = api.friendships_destroy(UID)
+    print(res)
+
+    return json.dumps({"data": "Unfollowed"})
+
+
+@app.route("/mutual", methods=["POST"])
+def mutual():
+    ID = int(request.form['ID'].strip())
+    users_df = pd.read_csv(users_management)
+    filepath = users_df.loc[users_df["ID"] == ID]['filename'].values[0]
+    #print(filepath, ID)
+    with open(filepath, 'r') as readfile:
+        account = json.load(readfile, object_hook=from_json)
+    api = Client('abc', 'abc', settings=account)
+    followers = get_all_follower(api)
+    following = get_all_following(api)
+
+    mutual = []
+    for f in following:
+        if f in followers:
+            f.follower = True
+            mutual.append(f)
+    print(mutual[0])
+    #print(followers)
+    print('Followers: ', len(followers))
+    print('Following: ', len(following))
+    print('Not Following you: ', len(mutual))
+
+    return json.dumps(mutual)
+
+
+@app.route("/fans", methods=["POST"])
+def fans():
+    ID = int(request.form['ID'].strip())
+    max_keys = int(request.form['max_keys'].strip())
+    users_df = pd.read_csv(users_management)
+    filepath = users_df.loc[users_df["ID"] == ID]['filename'].values[0]
+    #print(filepath, ID)
+    with open(filepath, 'r') as readfile:
+        account = json.load(readfile, object_hook=from_json)
+    api = Client('abc', 'abc', settings=account)
+    followers = get_all_follower(api)
+    following = get_all_following(api)
+
+    fans = []
+    for f in followers:
+        if f not in following:
+            f.following = False
+            fans.append(f)
+    print(fans[0])
+    #print(followers)
+    print('Followers: ', len(followers))
+    print('Following: ', len(following))
+    print('Not Following you: ', len(fans))
+
+    return json.dumps({"total_keys": len(fans), "data": fans[max_keys:max_keys + 50]})
 
 if __name__ == '__main__':
-    app.run(threaded=True, debug=True)
+    app.run(host="0.0.0.0", threaded=True, debug=True)
 
 
 
